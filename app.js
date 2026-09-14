@@ -457,7 +457,7 @@
     };
     const apply = () => {
       const filtered = physicians.filter(d =>
-        (!inputs.name.value || d.name.toLowerCase().includes(inputs.name.value.toLowerCase())) &&
+        (!inputs.name.value || d.name.toLowerCase().includes(inputs.name.value.toLowerCase()) || d.specialty.toLowerCase().includes(inputs.name.value.toLowerCase())) &&
         (!inputs.city.value || d.city === inputs.city.value) &&
         (!inputs.specialty.value || d.specialty === inputs.specialty.value) &&
         (!inputs.language.value || d.languages.includes(inputs.language.value)) &&
