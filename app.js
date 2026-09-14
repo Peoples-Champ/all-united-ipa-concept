@@ -4,6 +4,8 @@
   const nav = document.getElementById("primary-nav");
   const menuToggle = document.getElementById("menu-toggle");
   const toast = document.getElementById("toast");
+  let activeDirectoryMap = null;
+  let activeHomeMap = null;
 
   const icon = (name) => {
     const icons = {
@@ -71,6 +73,63 @@
       <div><h3>${title}</h3><p>${copy}</p></div>
       <span class="circle-arrow">${icon("arrow")}</span>
     </a>`;
+
+  function createInteractiveMap(containerId, initialDoctors, options = {}) {
+    const container = document.getElementById(containerId);
+    if (!container || typeof maplibregl === "undefined") return null;
+    const map = new maplibregl.Map({
+      container: containerId,
+      style: "https://tiles.openfreemap.org/styles/positron",
+      center: [-117.30, 33.98],
+      zoom: options.home ? 7.45 : 8.1,
+      minZoom: 6,
+      maxZoom: 17,
+      attributionControl: true
+    });
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    if (!options.home) {
+      map.addControl(new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: false,
+        showUserHeading: true
+      }), "top-right");
+    }
+    let markers = [];
+    const setDoctors = (doctors, fit = true) => {
+      markers.forEach(marker => marker.remove());
+      markers = doctors.map(doctor => {
+        const markerElement = document.createElement("button");
+        markerElement.className = "doctor-map-marker";
+        markerElement.type = "button";
+        markerElement.setAttribute("aria-label", `View sample profile for ${doctor.name}`);
+        markerElement.innerHTML = `<span>${doctor.firstName.charAt(0)}</span>`;
+        const popup = new maplibregl.Popup({ offset: 22, closeButton: true, maxWidth: "285px" }).setHTML(`
+          <div class="map-popup">
+            <span class="map-popup-label">Demo physician</span>
+            <strong>${doctor.name}</strong>
+            <small>${doctor.specialty}</small>
+            <p>${doctor.city}, CA • ${doctor.languages.join(" / ")}</p>
+            <a href="#/doctor/${doctor.id}">View profile →</a>
+          </div>`);
+        return new maplibregl.Marker({ element: markerElement, anchor: "bottom" })
+          .setLngLat(doctor.coordinates).setPopup(popup).addTo(map);
+      });
+      if (!fit || !doctors.length) return;
+      if (doctors.length === 1) {
+        map.flyTo({ center: doctors[0].coordinates, zoom: 11.5, essential: true });
+      } else {
+        const bounds = new maplibregl.LngLatBounds();
+        doctors.forEach(doctor => bounds.extend(doctor.coordinates));
+        map.fitBounds(bounds, {
+          padding: options.home ? { top: 55, right: 55, bottom: 55, left: 55 } : 65,
+          maxZoom: 10.5,
+          duration: 650
+        });
+      }
+    };
+    map.once("load", () => setDoctors(initialDoctors));
+    return { map, setDoctors };
+  }
 
   function homePage() {
     return `
@@ -173,14 +232,18 @@
             <p>All United Medical Group serves communities throughout San Bernardino County, Riverside County, and portions of Los Angeles County.</p>
             ${buttonLink("Explore our communities", "#/about", "button-white")}
           </div>
-          <div class="region-map" aria-label="Stylized map of service regions">
-            <div class="map-lines"></div>
-            <span class="map-pin pin-1"><i></i><b>High Desert</b></span>
-            <span class="map-pin pin-2"><i></i><b>San Bernardino</b></span>
-            <span class="map-pin pin-3 active"><i></i><b>Riverside</b></span>
-            <span class="map-pin pin-4"><i></i><b>Coachella Valley</b></span>
-            <span class="map-pin pin-5"><i></i><b>Southwest Riverside</b></span>
-            <div class="map-stat"><strong>50+</strong><span>communities across the region</span></div>
+          <div class="network-map-shell">
+            <div id="home-network-map" class="interactive-map" aria-label="Interactive map showing sample physicians across Southern California"></div>
+            <div class="map-region-panel">
+              <strong>Explore the region</strong>
+              <button data-map-center="-117.31,34.55,8">High Desert</button>
+              <button data-map-center="-117.29,34.10,9">San Bernardino</button>
+              <button data-map-center="-117.37,33.96,9">Riverside</button>
+              <button data-map-center="-116.36,33.75,9">Coachella Valley</button>
+              <button data-map-center="-117.18,33.58,9">Southwest Riverside</button>
+              <button class="map-reset" data-map-reset>View entire network</button>
+            </div>
+            <div class="map-demo-key"><i></i> Sample physician locations</div>
           </div>
         </div>
       </section>
@@ -282,13 +345,8 @@
               <button class="mobile-filter-button" id="mobile-filter-button">Filters <span>＋</span></button>
               <div class="doctor-grid directory-grid" id="doctor-results">${physicians.map(d=>doctorCard(d)).join("")}</div>
               <div class="directory-map-view" id="directory-map-view">
-                <div class="map-city city-redlands">Redlands<span>1</span></div>
-                <div class="map-city city-rancho">Rancho Cucamonga<span>1</span></div>
-                <div class="map-city city-riverside">Riverside<span>1</span></div>
-                <div class="map-city city-moreno">Moreno Valley<span>1</span></div>
-                <div class="map-city city-corona">Corona<span>1</span></div>
-                <div class="map-city city-palm">Palm Desert<span>1</span></div>
-                <p>Interactive geographic directory preview</p>
+                <div id="directory-interactive-map" class="interactive-map" aria-label="Interactive map of sample physician locations"></div>
+                <div class="directory-map-note"><strong>Interactive directory map</strong><span>Drag, zoom, use your location, or select a marker.</span></div>
               </div>
               <div class="empty-state" id="empty-state"><span>${icon("search")}</span><h3>No sample profiles match</h3><p>Try clearing one or more filters.</p><button class="button" id="empty-clear">Clear filters</button></div>
             </div>
@@ -465,6 +523,7 @@
         (!inputs.accepting.checked || d.accepting)
       );
       results.innerHTML = filtered.map(d=>doctorCard(d)).join("");
+      if (activeDirectoryMap) activeDirectoryMap.setDoctors(filtered);
       document.getElementById("result-count").textContent = filtered.length;
       document.getElementById("empty-state").classList.toggle("show", filtered.length === 0);
       results.hidden = filtered.length === 0;
@@ -476,11 +535,26 @@
     document.getElementById("mobile-filter-button").addEventListener("click", () => document.getElementById("directory-filters").classList.toggle("show"));
     document.querySelectorAll("[data-view]").forEach(btn => btn.addEventListener("click", () => {
       document.querySelectorAll("[data-view]").forEach(b=>b.classList.remove("active")); btn.classList.add("active");
-      const map = btn.dataset.view === "map"; results.style.display = map ? "none" : ""; document.getElementById("directory-map-view").classList.toggle("show", map);
+      const showMap = btn.dataset.view === "map";
+      results.style.display = showMap ? "none" : "";
+      document.getElementById("directory-map-view").classList.toggle("show", showMap);
+      if (showMap) requestAnimationFrame(() => {
+        if (!activeDirectoryMap) activeDirectoryMap = createInteractiveMap("directory-interactive-map", physicians);
+        else activeDirectoryMap.map.resize();
+      });
     }));
   }
 
   function bindPageEvents() {
+    const homeMapContainer = document.getElementById("home-network-map");
+    if (homeMapContainer) {
+      activeHomeMap = createInteractiveMap("home-network-map", physicians, { home: true });
+      document.querySelectorAll("[data-map-center]").forEach(button => button.addEventListener("click", () => {
+        const [lng, lat, zoom] = button.dataset.mapCenter.split(",").map(Number);
+        activeHomeMap?.map.flyTo({ center: [lng, lat], zoom, essential: true });
+      }));
+      document.querySelector("[data-map-reset]")?.addEventListener("click", () => activeHomeMap?.setDoctors(physicians));
+    }
     const homeSearch = document.getElementById("home-search");
     if (homeSearch) homeSearch.addEventListener("submit", e => {
       e.preventDefault();
@@ -512,6 +586,10 @@
   }
 
   function route() {
+    activeDirectoryMap?.map.remove();
+    activeHomeMap?.map.remove();
+    activeDirectoryMap = null;
+    activeHomeMap = null;
     const raw = location.hash.replace(/^#\/?/, "") || "";
     const parts = raw.split("/");
     let template;
